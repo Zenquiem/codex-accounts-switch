@@ -370,9 +370,7 @@ button.danger {
   gap: 8px;
 }
 
-:root[data-theme="dark"] #setting-language,
-:root[data-theme="dark"] #setting-theme,
-:root[data-theme="dark"] #setting-window-close {
+:root[data-theme="dark"] .modal-body select {
   background-color: var(--input-bg) !important;
   color: var(--text) !important;
   border-color: var(--input-border) !important;
@@ -382,24 +380,14 @@ button.danger {
   box-shadow: none;
 }
 
-:root[data-theme="dark"] #setting-language option,
-:root[data-theme="dark"] #setting-theme option,
-:root[data-theme="dark"] #setting-window-close option {
+:root[data-theme="dark"] .modal-body select option {
   background-color: var(--input-bg);
   color: var(--text);
 }
 
-:root[data-theme="dark"] #setting-language:disabled,
-:root[data-theme="dark"] #setting-theme:disabled,
-:root[data-theme="dark"] #setting-window-close:disabled {
+:root[data-theme="dark"] .modal-body select:disabled {
   opacity: 1;
   -webkit-text-fill-color: var(--text);
-}
-
-:root[data-theme="dark"] #settings-panel-general select {
-  background-color: var(--input-bg) !important;
-  color: var(--text) !important;
-  border-color: var(--input-border) !important;
 }
 
 .path-picker-row {
@@ -500,6 +488,34 @@ button.danger {
   font-size: 12px;
   color: var(--subtle);
   word-break: break-all;
+}
+
+.self-update-badge {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 10px;
+  border: 1px solid var(--list-row-border);
+  background: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  font-weight: 600;
+}
+
+.self-update-badge.upgradable {
+  border-color: #d7a93a;
+  background: #ffefc8;
+  color: #7a5600;
+}
+
+.self-update-badge.latest {
+  border-color: #73b78f;
+  background: #dff7e8;
+  color: #155a33;
+}
+
+.self-update-badge.error {
+  border-color: #de8f8f;
+  background: #ffe7e7;
+  color: #7d2323;
 }
 
 .row-actions {

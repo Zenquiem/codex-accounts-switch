@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.1] - 2026-02-12
+
+### Added
+- About panel now supports per-component latest-version checks.
+- Added per-component "install latest" action (opens install terminal).
+- Added upgrade status display (current/latest/upgradable) for environment components.
+- Added self-update check for this tool (current vs latest GitHub release/tag version).
+- Added self "install latest" action and highlighted update status badge in About panel.
+
 ## [1.0.0] - 2026-02-12
 
 ### Added

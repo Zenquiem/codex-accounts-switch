@@ -11,6 +11,8 @@ import shutil
 import socket
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,36 @@ _QUOTA_CACHE: dict[str, dict[str, Any]] = {}
 _BINARY_CACHE: dict[str, str | None] = {}
 _ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-9;]*[A-Za-z]")
 _LOCAL_PROXY_CANDIDATE_PORTS = (7890, 20171, 1080, 8080)
+_COMPONENT_SPECS: dict[str, dict[str, str]] = {
+    "codex": {
+        "binary": "codex",
+        "manager": "npm",
+        "package": "@openai/codex",
+    },
+    "gnome_terminal": {
+        "binary": "gnome-terminal",
+        "manager": "apt",
+        "package": "gnome-terminal",
+    },
+    "zsh": {
+        "binary": "zsh",
+        "manager": "apt",
+        "package": "zsh",
+    },
+    "bash": {
+        "binary": "bash",
+        "manager": "apt",
+        "package": "bash",
+    },
+    "zenity": {
+        "binary": "zenity",
+        "manager": "apt",
+        "package": "zenity",
+    },
+}
+_VERSION_TOKEN_RE = re.compile(r"\d[0-9A-Za-z.+:~\-]*")
+_APT_POLICY_TABLE_RE = re.compile(r"^\*{0,3}\s*([0-9][^\s]*)\s+\d+")
+_REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 def _is_executable_file(path: Path) -> bool:
@@ -174,6 +206,470 @@ def _binary_status(binary: str) -> dict[str, Any]:
         "binary": binary,
         "available": bool(path),
         "path": path,
+    }
+
+
+def _component_key(component_key: str) -> str:
+    key = str(component_key or "").strip().lower()
+    if key not in _COMPONENT_SPECS:
+        raise CodexOpsError(f"不支持的组件 `{component_key}`。")
+    return key
+
+
+def _component_display_name(component_key: str) -> str:
+    labels = {
+        "codex": "Codex CLI",
+        "gnome_terminal": "gnome-terminal",
+        "zsh": "zsh",
+        "bash": "bash",
+        "zenity": "zenity",
+    }
+    return labels.get(component_key, component_key)
+
+
+def _extract_version_token(text: str) -> str | None:
+    cleaned = _clean_line_value(text)
+    if not cleaned:
+        return None
+    match = _VERSION_TOKEN_RE.search(cleaned)
+    if not match:
+        return None
+    return match.group(0).strip()
+
+
+def _is_none_version(value: str | None) -> bool:
+    if value is None:
+        return True
+    normalized = str(value).strip().lower()
+    return not normalized or normalized == "(none)"
+
+
+def _run_text_command(command: list[str], timeout: int = 20) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        cmd_text = " ".join(shlex.quote(part) for part in command)
+        raise CodexOpsError(f"命令执行超时：{cmd_text}") from exc
+    except OSError as exc:
+        cmd_text = " ".join(shlex.quote(part) for part in command)
+        raise CodexOpsError(f"命令执行失败：{cmd_text}（{exc}）") from exc
+
+
+def _parse_apt_policy_versions(output: str) -> tuple[str | None, str | None]:
+    installed = None
+    candidate = None
+    in_version_table = False
+    for line in output.splitlines():
+        stripped = line.strip()
+        lowered = stripped.lower()
+
+        if ":" in stripped:
+            key, _, value = stripped.partition(":")
+            key_norm = key.strip().lower()
+            parsed_value = value.strip() or None
+            if any(token in key_norm for token in ("installed", "已安装", "installiert", "instalado")):
+                installed = parsed_value
+            elif any(token in key_norm for token in ("candidate", "候选", "kandidat", "candidato")):
+                candidate = parsed_value
+
+        if lowered.startswith("version table") or stripped.startswith("版本列表"):
+            in_version_table = True
+            continue
+
+        if not in_version_table:
+            continue
+
+        matched = _APT_POLICY_TABLE_RE.match(stripped)
+        if matched:
+            table_version = matched.group(1).strip()
+            if table_version and (_is_none_version(candidate) or not candidate):
+                candidate = table_version
+            if table_version and "***" in stripped and (_is_none_version(installed) or not installed):
+                installed = table_version
+    return installed, candidate
+
+
+def _parse_apt_madison_latest(output: str) -> str | None:
+    for line in output.splitlines():
+        if "|" not in line:
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) < 2:
+            continue
+        version = _extract_version_token(parts[1]) or _clean_line_value(parts[1])
+        if version:
+            return version
+    return None
+
+
+def _parse_github_repo_slug(remote_url: str) -> str | None:
+    raw = _clean_line_value(remote_url)
+    if not raw or "github.com" not in raw:
+        return None
+
+    path = ""
+    if raw.startswith("git@github.com:"):
+        path = raw.split(":", 1)[1]
+    elif "github.com/" in raw:
+        path = raw.split("github.com/", 1)[1]
+    elif "github.com:" in raw:
+        path = raw.split("github.com:", 1)[1]
+    else:
+        return None
+
+    normalized = path.split("?", 1)[0].split("#", 1)[0].strip().strip("/")
+    if normalized.endswith(".git"):
+        normalized = normalized[:-4]
+    parts = [part for part in normalized.split("/") if part]
+    if len(parts) < 2:
+        return None
+    slug = f"{parts[0]}/{parts[1]}"
+    if not _REPO_SLUG_RE.match(slug):
+        return None
+    return slug
+
+
+def _resolve_update_repo_slug() -> str | None:
+    env_repo = _clean_line_value(os.environ.get("CAS_UPDATE_REPO", ""))
+    if env_repo and _REPO_SLUG_RE.match(env_repo):
+        return env_repo
+
+    git_bin = _resolve_binary("git")
+    if not git_bin:
+        return None
+
+    project_root = Path(__file__).resolve().parent.parent
+    try:
+        completed = subprocess.run(
+            [git_bin, "-C", str(project_root), "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            timeout=6,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    return _parse_github_repo_slug(completed.stdout or "")
+
+
+def _fetch_json(url: str, timeout: int = 10) -> Any:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "codex-accounts-switch",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = response.read().decode("utf-8", errors="replace")
+    return json.loads(payload)
+
+
+def _normalize_version_text(raw_version: str | None) -> str | None:
+    cleaned = _clean_line_value(raw_version or "")
+    if not cleaned:
+        return None
+    if cleaned.startswith(("v", "V")) and len(cleaned) > 1 and cleaned[1].isdigit():
+        cleaned = cleaned[1:]
+    token = _extract_version_token(cleaned)
+    if token:
+        return token.lstrip("vV")
+    return cleaned
+
+
+def _version_int_parts(raw_version: str | None) -> tuple[int, ...]:
+    normalized = _normalize_version_text(raw_version)
+    if not normalized:
+        return ()
+    numbers = re.findall(r"\d+", normalized)
+    if not numbers:
+        return ()
+    return tuple(int(part) for part in numbers[:8])
+
+
+def _compare_versions(left: str | None, right: str | None) -> int:
+    left_parts = _version_int_parts(left)
+    right_parts = _version_int_parts(right)
+    max_len = max(len(left_parts), len(right_parts), 1)
+    left_padded = left_parts + (0,) * (max_len - len(left_parts))
+    right_padded = right_parts + (0,) * (max_len - len(right_parts))
+    if left_padded < right_padded:
+        return -1
+    if left_padded > right_padded:
+        return 1
+    return 0
+
+
+def check_self_latest_version(current_version: str) -> dict[str, Any]:
+    repo_slug = _resolve_update_repo_slug()
+    if not repo_slug:
+        raise CodexOpsError(
+            "未配置版本检测仓库。请设置环境变量 `CAS_UPDATE_REPO=owner/repo` "
+            "或在 git remote origin 中使用 GitHub 仓库地址。"
+        )
+
+    api_base = f"https://api.github.com/repos/{repo_slug}"
+    latest_tag = None
+    source = ""
+    release_url = None
+
+    try:
+        release_payload = _fetch_json(f"{api_base}/releases/latest", timeout=12)
+        if isinstance(release_payload, dict):
+            latest_tag = _clean_line_value(str(release_payload.get("tag_name") or ""))
+            release_url = _clean_line_value(str(release_payload.get("html_url") or "")) or None
+            source = "github_release"
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise CodexOpsError(f"检查工具最新版失败：HTTP {exc.code}。") from exc
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+        raise CodexOpsError(f"检查工具最新版失败：{exc}") from exc
+
+    if not latest_tag:
+        try:
+            tags_payload = _fetch_json(f"{api_base}/tags?per_page=1", timeout=12)
+        except urllib.error.HTTPError as exc:
+            raise CodexOpsError(f"检查工具最新版失败：HTTP {exc.code}。") from exc
+        except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+            raise CodexOpsError(f"检查工具最新版失败：{exc}") from exc
+
+        if isinstance(tags_payload, list) and tags_payload:
+            first = tags_payload[0]
+            if isinstance(first, dict):
+                latest_tag = _clean_line_value(str(first.get("name") or ""))
+                source = "github_tags"
+
+    latest_version = _normalize_version_text(latest_tag)
+    current_normalized = _normalize_version_text(current_version) or str(current_version).strip()
+    if not latest_version:
+        raise CodexOpsError("检查工具最新版失败：未获取到有效版本号。")
+
+    comparison = _compare_versions(current_normalized, latest_version)
+    upgradable = comparison < 0
+
+    return {
+        "current_version": current_normalized,
+        "latest_version": latest_version,
+        "upgradable": bool(upgradable),
+        "repo": repo_slug,
+        "source": source or "unknown",
+        "release_url": release_url,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def launch_self_latest_install() -> dict[str, Any]:
+    project_root = Path(__file__).resolve().parent.parent
+    if not (project_root / ".git").exists():
+        raise CodexOpsError("当前目录不是 Git 仓库，无法一键安装最新版。")
+
+    terminal_bin = _require_binary("gnome-terminal")
+    git_bin = _require_binary("git")
+    project_root_quoted = shlex.quote(str(project_root))
+    git_bin_quoted = shlex.quote(git_bin)
+
+    commands = [
+        f"cd {project_root_quoted}",
+        f"{git_bin_quoted} pull --ff-only",
+    ]
+
+    venv_pip = project_root / ".venv" / "bin" / "pip"
+    if _is_executable_file(venv_pip):
+        commands.append(f"{shlex.quote(str(venv_pip))} install -r requirements.txt")
+    else:
+        commands.append(
+            "if command -v pip3 >/dev/null 2>&1; then "
+            "pip3 install -r requirements.txt; "
+            "elif command -v pip >/dev/null 2>&1; then "
+            "pip install -r requirements.txt; "
+            "fi"
+        )
+
+    desktop_install_script = project_root / "scripts" / "install_desktop_entry.sh"
+    if desktop_install_script.exists() and desktop_install_script.is_file():
+        commands.append(f"bash {shlex.quote(str(desktop_install_script))}")
+
+    install_command = " && ".join(commands)
+    shell_command = (
+        f"{install_command}; "
+        "status=$?; "
+        "echo; "
+        "if [ $status -eq 0 ]; then "
+        "echo '工具更新完成。请重启应用以生效。按 Enter 关闭窗口。'; "
+        "else "
+        "echo '工具更新失败，请检查输出后重试。按 Enter 关闭窗口。'; "
+        "fi; "
+        "read -r _; "
+        "exit $status"
+    )
+
+    subprocess.Popen(
+        [terminal_bin, "--", "bash", "-lc", shell_command],
+        start_new_session=True,
+    )
+
+    return {
+        "command": install_command,
+        "message": "已打开工具更新终端。",
+    }
+
+
+def _build_install_command_for_component(component_key: str) -> str:
+    key = _component_key(component_key)
+    spec = _COMPONENT_SPECS[key]
+    manager = spec["manager"]
+    package = spec["package"]
+
+    if manager == "npm":
+        npm_bin = _require_binary("npm")
+        return f"{shlex.quote(npm_bin)} install -g {shlex.quote(package + '@latest')}"
+
+    if manager == "apt":
+        apt_get_bin = _require_binary("apt-get")
+        apt_get_quoted = shlex.quote(apt_get_bin)
+        package_quoted = shlex.quote(package)
+        return (
+            f"sudo {apt_get_quoted} update && "
+            f"sudo {apt_get_quoted} install -y {package_quoted}"
+        )
+
+    raise CodexOpsError(f"组件 `{component_key}` 暂不支持自动安装。")
+
+
+def check_component_latest_version(component_key: str) -> dict[str, Any]:
+    key = _component_key(component_key)
+    spec = _COMPONENT_SPECS[key]
+    manager = spec["manager"]
+    package = spec["package"]
+    display_name = _component_display_name(key)
+
+    current_version: str | None = None
+    latest_version: str | None = None
+    message = ""
+
+    if manager == "npm":
+        codex_path = _resolve_binary(spec["binary"])
+        if codex_path:
+            current_raw, _ = _run_binary_version(codex_path)
+            if current_raw:
+                current_version = _extract_version_token(current_raw) or current_raw
+
+        npm_bin = _require_binary("npm")
+        completed = _run_text_command([npm_bin, "view", package, "version"], timeout=25)
+        stdout = _clean_line_value(completed.stdout or "")
+        stderr = _clean_line_value(completed.stderr or "")
+        if completed.returncode != 0:
+            error = stderr or stdout or "未知错误。"
+            raise CodexOpsError(f"检查 {display_name} 最新版失败：{error}")
+
+        latest_version = _extract_version_token(stdout) or stdout
+        if not latest_version:
+            raise CodexOpsError(f"检查 {display_name} 最新版失败：未返回版本信息。")
+
+    elif manager == "apt":
+        apt_cache_bin = _require_binary("apt-cache")
+        completed = _run_text_command([apt_cache_bin, "policy", package], timeout=20)
+        stdout = completed.stdout or ""
+        stderr = _clean_line_value(completed.stderr or "")
+        if completed.returncode != 0:
+            error = stderr or _clean_line_value(stdout) or "未知错误。"
+            raise CodexOpsError(f"检查 {display_name} 最新版失败：{error}")
+
+        installed, candidate = _parse_apt_policy_versions(stdout)
+        if not _is_none_version(installed):
+            current_version = str(installed)
+        if not _is_none_version(candidate):
+            latest_version = str(candidate)
+
+        # Fallback: apt-cache policy output can vary by locale/format.
+        if not latest_version:
+            madison = _run_text_command([apt_cache_bin, "madison", package], timeout=20)
+            if madison.returncode == 0:
+                latest_version = _parse_apt_madison_latest(madison.stdout or "")
+
+        # Fallback: derive current version from binary if policy did not expose it.
+        if not current_version:
+            binary_path = _resolve_binary(spec["binary"])
+            if binary_path:
+                current_raw, _ = _run_binary_version(binary_path)
+                if current_raw:
+                    current_version = _extract_version_token(current_raw) or current_raw
+
+        if not current_version and not latest_version:
+            raise CodexOpsError(f"检查 {display_name} 最新版失败：未解析到版本信息。")
+
+    else:
+        raise CodexOpsError(f"组件 `{component_key}` 暂不支持版本检查。")
+
+    if current_version and latest_version:
+        upgradable = current_version != latest_version
+    elif latest_version and not current_version:
+        upgradable = True
+    else:
+        upgradable = False
+
+    if upgradable:
+        message = f"{display_name} 可升级。"
+    else:
+        message = f"{display_name} 已是最新。"
+
+    install_supported = bool(_resolve_binary("gnome-terminal"))
+    if manager == "npm":
+        install_supported = install_supported and bool(_resolve_binary("npm"))
+    elif manager == "apt":
+        install_supported = install_supported and bool(_resolve_binary("apt-get"))
+
+    return {
+        "component": key,
+        "display_name": display_name,
+        "manager": manager,
+        "package": package,
+        "current_version": current_version,
+        "latest_version": latest_version,
+        "upgradable": bool(upgradable),
+        "install_supported": bool(install_supported),
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "message": message,
+    }
+
+
+def launch_component_latest_install(component_key: str) -> dict[str, Any]:
+    key = _component_key(component_key)
+    display_name = _component_display_name(key)
+    terminal_bin = _require_binary("gnome-terminal")
+    install_command = _build_install_command_for_component(key)
+
+    shell_command = (
+        f"{install_command}; "
+        "status=$?; "
+        "echo; "
+        "if [ $status -eq 0 ]; then "
+        "echo '安装命令执行完成。按 Enter 关闭窗口。'; "
+        "else "
+        "echo '安装命令执行失败，请检查输出后重试。按 Enter 关闭窗口。'; "
+        "fi; "
+        "read -r _; "
+        "exit $status"
+    )
+
+    subprocess.Popen(
+        [terminal_bin, "--", "bash", "-lc", shell_command],
+        start_new_session=True,
+    )
+
+    return {
+        "component": key,
+        "display_name": display_name,
+        "command": install_command,
+        "message": f"已打开 {display_name} 的安装终端。",
     }
 
 

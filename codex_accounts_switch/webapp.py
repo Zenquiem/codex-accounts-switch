@@ -11,12 +11,16 @@ from flask import Flask, jsonify, render_template, request
 
 from .codex_ops import (
     CodexOpsError,
+    check_component_latest_version,
+    check_self_latest_version,
     collect_system_status,
     delete_project_session_files,
     get_account_quota,
     get_project_session_preview,
+    launch_component_latest_install,
     list_project_sessions,
     list_project_trashed_sessions,
+    launch_self_latest_install,
     open_directory,
     open_account_trash,
     open_project_terminal,
@@ -559,6 +563,26 @@ def create_app(data_root: str | None = None) -> Flask:
     def api_system_status():
         return jsonify({"ok": True, "status": collect_system_status()})
 
+    @app.get("/api/system/components/<component_key>/latest")
+    def api_component_latest(component_key: str):
+        try:
+            latest = check_component_latest_version(component_key)
+            return jsonify({"ok": True, "latest": latest})
+        except CodexOpsError as exc:
+            message = str(exc)
+            status = 404 if "不支持的组件" in message else 502
+            return _json_error(message, status=status)
+
+    @app.post("/api/system/components/<component_key>/install")
+    def api_component_install(component_key: str):
+        try:
+            result = launch_component_latest_install(component_key)
+            return jsonify({"ok": True, **result})
+        except CodexOpsError as exc:
+            message = str(exc)
+            status = 404 if "不支持的组件" in message else 502
+            return _json_error(message, status=status)
+
     @app.get("/api/system/config-dir")
     def api_system_config_dir():
         return jsonify({"ok": True, "path": str(store.paths.root)})
@@ -588,6 +612,22 @@ def create_app(data_root: str | None = None) -> Flask:
                 "status": collect_system_status(),
             }
         )
+
+    @app.get("/api/system/self/latest")
+    def api_system_self_latest():
+        try:
+            latest = check_self_latest_version(__version__)
+            return jsonify({"ok": True, "latest": latest})
+        except CodexOpsError as exc:
+            return _json_error(str(exc), status=502)
+
+    @app.post("/api/system/self/install")
+    def api_system_self_install():
+        try:
+            result = launch_self_latest_install()
+            return jsonify({"ok": True, **result})
+        except CodexOpsError as exc:
+            return _json_error(str(exc), status=502)
 
     @app.post("/api/system/open-trash")
     def api_open_trash():

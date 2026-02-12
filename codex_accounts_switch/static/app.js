@@ -50,6 +50,12 @@ const state = {
   projects: [],
   systemStatus: null,
   aboutInfo: null,
+  selfLatest: null,
+  selfLatestLoading: false,
+  selfInstallLoading: false,
+  componentLatest: {},
+  componentLatestLoading: {},
+  componentInstallLoading: {},
   accountQuotas: {},
   accountQuotaLoading: {},
   uiSettings: { ...DEFAULT_UI_SETTINGS },
@@ -104,6 +110,14 @@ const I18N = {
     path_not_found: "未找到",
     status_checking: "检测中...",
     status_check_failed: "检测失败",
+    component_check_latest: "检查最新版",
+    component_checking_latest: "检查中...",
+    component_install_latest: "安装最新版",
+    component_installing_latest: "启动中...",
+    component_upgrade_available: "可升级",
+    component_up_to_date: "已是最新",
+    toast_component_checked: "{name} 版本检测完成。",
+    toast_component_install_started: "{name} 安装终端已启动。",
     settings_title: "设置",
     add_project_title: "添加项目",
     add_project_label_name: "项目名",
@@ -197,12 +211,23 @@ const I18N = {
     about_unavailable: "关于信息不可用",
     about_unavailable_desc: "未返回版本与运行环境信息。",
     about_version: "工具版本",
+    about_latest_version: "最新版",
+    about_update_status: "更新状态",
     about_platform: "系统平台",
     about_python: "Python",
     about_machine: "架构",
     about_data_root: "配置目录",
+    update_available: "可升级",
+    update_up_to_date: "已是最新",
+    update_check_failed: "检查失败",
+    self_install_latest: "安装最新版",
+    self_installing_latest: "启动中...",
+    toast_self_install_started: "工具更新终端已启动。",
     role_status_detail: "状态：{status}",
     role_version_detail: "版本：{version}",
+    role_current_detail: "当前：{current}",
+    role_latest_detail: "最新：{latest}",
+    role_upgrade_detail: "升级：{upgrade}",
     role_path_detail: "路径：{path}",
     role_reason_detail: "说明：{reason}",
   },
@@ -253,6 +278,14 @@ const I18N = {
     path_not_found: "Not found",
     status_checking: "Checking...",
     status_check_failed: "Check failed",
+    component_check_latest: "Check latest",
+    component_checking_latest: "Checking...",
+    component_install_latest: "Install latest",
+    component_installing_latest: "Launching...",
+    component_upgrade_available: "Upgrade available",
+    component_up_to_date: "Up to date",
+    toast_component_checked: "{name} version check complete.",
+    toast_component_install_started: "{name} install terminal launched.",
     settings_title: "Settings",
     add_project_title: "Add Project",
     add_project_label_name: "Project name",
@@ -347,12 +380,23 @@ const I18N = {
     about_unavailable: "About information unavailable",
     about_unavailable_desc: "Version/runtime details were not returned.",
     about_version: "Version",
+    about_latest_version: "Latest version",
+    about_update_status: "Update status",
     about_platform: "Platform",
     about_python: "Python",
     about_machine: "Architecture",
     about_data_root: "Config directory",
+    update_available: "Upgrade available",
+    update_up_to_date: "Up to date",
+    update_check_failed: "Check failed",
+    self_install_latest: "Install latest",
+    self_installing_latest: "Launching...",
+    toast_self_install_started: "Tool update terminal launched.",
     role_status_detail: "Status: {status}",
     role_version_detail: "Version: {version}",
+    role_current_detail: "Current: {current}",
+    role_latest_detail: "Latest: {latest}",
+    role_upgrade_detail: "Upgrade: {upgrade}",
     role_path_detail: "Path: {path}",
     role_reason_detail: "Info: {reason}",
   },
@@ -834,12 +878,34 @@ function renderSystemStatus(status) {
   order.forEach((key) => {
     const item = status.components[key];
     if (!item) return;
+    const latest = state.componentLatest[key] || null;
+    const checkLoading = Boolean(state.componentLatestLoading[key]);
+    const installLoading = Boolean(state.componentInstallLoading[key]);
+    const canInstall = !latest || latest.install_supported !== false;
     const details = [];
     details.push(t("role_status_detail", { status: statusLabel(Boolean(item.ok)) }));
     if (item.version) details.push(t("role_version_detail", { version: item.version }));
     if (item.path) details.push(t("role_path_detail", { path: item.path }));
     else details.push(t("role_path_detail", { path: t("path_not_found") }));
     if (item.error) details.push(t("role_reason_detail", { reason: item.error }));
+    if (latest) {
+      if (latest.current_version) {
+        details.push(t("role_current_detail", { current: latest.current_version }));
+      }
+      if (latest.latest_version) {
+        details.push(t("role_latest_detail", { latest: latest.latest_version }));
+      }
+      if (typeof latest.upgradable === "boolean") {
+        details.push(
+          t("role_upgrade_detail", {
+            upgrade: latest.upgradable ? t("component_upgrade_available") : t("component_up_to_date"),
+          })
+        );
+      }
+      if (latest.error) {
+        details.push(t("role_reason_detail", { reason: latest.error }));
+      }
+    }
 
     const row = document.createElement("div");
     row.className = "list-row";
@@ -848,9 +914,32 @@ function renderSystemStatus(status) {
         <strong>${escapeHtml(componentDisplayName(key))}</strong>
         <span>${escapeHtml(details.join(" · "))}</span>
       </div>
+      <div class="row-actions">
+        <button class="secondary" data-component-check="${escapeHtmlAttr(key)}" ${
+      checkLoading ? "disabled" : ""
+    }>${escapeHtml(checkLoading ? t("component_checking_latest") : t("component_check_latest"))}</button>
+        <button class="primary" data-component-install="${escapeHtmlAttr(key)}" ${
+      installLoading || !canInstall ? "disabled" : ""
+    }>${escapeHtml(
+      installLoading ? t("component_installing_latest") : t("component_install_latest")
+    )}</button>
+      </div>
     `;
     list.appendChild(row);
   });
+}
+
+function selfUpdateStatusInfo() {
+  if (state.selfLatestLoading) {
+    return { label: t("status_checking"), level: "pending", detail: "" };
+  }
+  if (state.selfLatest?.error) {
+    return { label: t("update_check_failed"), level: "error", detail: String(state.selfLatest.error) };
+  }
+  if (state.selfLatest?.upgradable) {
+    return { label: t("update_available"), level: "upgradable", detail: "" };
+  }
+  return { label: t("update_up_to_date"), level: "latest", detail: "" };
 }
 
 function renderAboutInfo(about) {
@@ -863,27 +952,68 @@ function renderAboutInfo(about) {
   }
 
   const rows = [
-    { key: t("about_version"), value: about.version || "-" },
-    { key: t("about_platform"), value: about.platform || "-" },
-    { key: t("about_python"), value: about.python_version || "-" },
-    { key: t("about_machine"), value: about.machine || "-" },
-    { key: t("about_data_root"), value: about.data_root || "-" },
+    { key: t("about_version"), value: about.version || "-", kind: "plain" },
+    {
+      key: t("about_latest_version"),
+      value: state.selfLatestLoading ? t("status_checking") : state.selfLatest?.latest_version || "-",
+      kind: "plain",
+    },
+    { key: t("about_update_status"), value: "", kind: "update_status" },
+    { key: t("about_platform"), value: about.platform || "-", kind: "plain" },
+    { key: t("about_python"), value: about.python_version || "-", kind: "plain" },
+    { key: t("about_machine"), value: about.machine || "-", kind: "plain" },
+    { key: t("about_data_root"), value: about.data_root || "-", kind: "plain" },
   ];
   list.innerHTML = "";
   rows.forEach((row) => {
     const item = document.createElement("div");
     item.className = "list-row";
-    item.innerHTML = `
-      <div class="list-main">
-        <strong>${escapeHtml(row.key)}</strong>
-        <span>${escapeHtml(row.value)}</span>
-      </div>
-    `;
+
+    const main = document.createElement("div");
+    main.className = "list-main";
+    const title = document.createElement("strong");
+    title.textContent = row.key;
+    main.appendChild(title);
+
+    if (row.kind === "update_status") {
+      const status = selfUpdateStatusInfo();
+      const badge = document.createElement("span");
+      badge.className = `self-update-badge ${status.level}`;
+      badge.textContent = status.label;
+      main.appendChild(badge);
+      if (status.detail) {
+        const detail = document.createElement("span");
+        detail.textContent = status.detail;
+        main.appendChild(detail);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+      const installBtn = document.createElement("button");
+      installBtn.className = "primary";
+      installBtn.dataset.selfInstall = "1";
+      installBtn.textContent = state.selfInstallLoading
+        ? t("self_installing_latest")
+        : t("self_install_latest");
+      installBtn.disabled = state.selfInstallLoading || state.selfLatestLoading;
+      actions.appendChild(installBtn);
+      item.appendChild(main);
+      item.appendChild(actions);
+      list.appendChild(item);
+      return;
+    }
+
+    const value = document.createElement("span");
+    value.textContent = row.value;
+    main.appendChild(value);
+    item.appendChild(main);
     list.appendChild(item);
   });
 }
 
 async function refreshAboutPanel() {
+  state.selfLatest = null;
+  state.selfLatestLoading = true;
   renderAboutInfo(null);
   const statusList = byId("system-status-list");
   statusList.innerHTML = `<div class="list-row"><div class="list-main"><strong>${escapeHtml(
@@ -893,12 +1023,23 @@ async function refreshAboutPanel() {
     const payload = await apiRequest("/api/system/about");
     state.aboutInfo = payload.about || null;
     state.systemStatus = payload.status || null;
+    try {
+      const selfPayload = await apiRequest("/api/system/self/latest");
+      state.selfLatest = selfPayload.latest || null;
+    } catch (error) {
+      state.selfLatest = { error: error.message };
+    }
     renderAboutInfo(state.aboutInfo);
     renderSystemStatus(state.systemStatus);
   } catch (error) {
     statusList.innerHTML = `<div class="list-row"><div class="list-main"><strong>${escapeHtml(
       t("status_check_failed")
     )}</strong><span>${escapeHtml(error.message)}</span></div></div>`;
+  } finally {
+    state.selfLatestLoading = false;
+    if (state.aboutInfo) {
+      renderAboutInfo(state.aboutInfo);
+    }
   }
 }
 
@@ -947,6 +1088,80 @@ async function updateUISettings(payload) {
     body: JSON.stringify(payload),
   });
   return normalizeUISettings(result.settings || {});
+}
+
+async function fetchComponentLatest(componentKey) {
+  const encoded = encodeURIComponent(componentKey);
+  return apiRequest(`/api/system/components/${encoded}/latest`);
+}
+
+async function openComponentInstallTerminal(componentKey) {
+  const encoded = encodeURIComponent(componentKey);
+  return apiRequest(`/api/system/components/${encoded}/install`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+async function openSelfInstallTerminal() {
+  return apiRequest("/api/system/self/install", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+async function checkLatestForComponent(componentKey) {
+  state.componentLatestLoading[componentKey] = true;
+  renderSystemStatus(state.systemStatus);
+  try {
+    const payload = await fetchComponentLatest(componentKey);
+    const latest = payload.latest || {};
+    state.componentLatest[componentKey] = latest;
+    const displayName = componentDisplayName(componentKey);
+    showToast(t("toast_component_checked", { name: displayName }));
+  } catch (error) {
+    state.componentLatest[componentKey] = {
+      error: error.message,
+      install_supported: false,
+    };
+    showToast(error.message, true);
+  } finally {
+    delete state.componentLatestLoading[componentKey];
+    renderSystemStatus(state.systemStatus);
+  }
+}
+
+async function installLatestForComponent(componentKey) {
+  state.componentInstallLoading[componentKey] = true;
+  renderSystemStatus(state.systemStatus);
+  try {
+    const payload = await openComponentInstallTerminal(componentKey);
+    const displayName = payload.display_name || componentDisplayName(componentKey);
+    showToast(t("toast_component_install_started", { name: displayName }));
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    delete state.componentInstallLoading[componentKey];
+    renderSystemStatus(state.systemStatus);
+  }
+}
+
+async function installLatestForSelf() {
+  state.selfInstallLoading = true;
+  if (state.aboutInfo) {
+    renderAboutInfo(state.aboutInfo);
+  }
+  try {
+    const payload = await openSelfInstallTerminal();
+    showToast(payload.message || t("toast_self_install_started"));
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    state.selfInstallLoading = false;
+    if (state.aboutInfo) {
+      renderAboutInfo(state.aboutInfo);
+    }
+  }
 }
 
 function buildSessionQuery() {
@@ -1409,6 +1624,30 @@ function bindEvents() {
 
   byId("settings-recheck").addEventListener("click", refreshAboutPanel);
   byId("settings-close").addEventListener("click", () => closeDialog("dialog-settings"));
+  byId("system-status-list").addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest("button");
+    if (!(button instanceof HTMLButtonElement)) return;
+    const checkComponent = button.dataset.componentCheck;
+    if (checkComponent) {
+      await checkLatestForComponent(checkComponent);
+      return;
+    }
+    const installComponent = button.dataset.componentInstall;
+    if (installComponent) {
+      await installLatestForComponent(installComponent);
+    }
+  });
+  byId("about-info-list").addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest("button");
+    if (!(button instanceof HTMLButtonElement)) return;
+    if (button.dataset.selfInstall === "1") {
+      await installLatestForSelf();
+    }
+  });
 
   byId("btn-trash").addEventListener("click", async () => {
     fillTrashProjectSelect();
