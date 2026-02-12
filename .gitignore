@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+*.AppImage
+.build/
+
+# Local runtime/test data
+.tmp_test_data/
+.tmp_test_data_2/
+.tmp_test_data_3/
+.cas-quota-probe/
+
+# Editor/OS
+.DS_Store
+.vscode/
+.idea/

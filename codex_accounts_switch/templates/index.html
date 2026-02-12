@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>codex-accounts-switch</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v=asset_version) }}">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="toolbar">
+      <button id="btn-refresh" class="icon-pill" title="刷新">⟳</button>
+      <button id="btn-settings" class="icon-pill" title="设置">⚙</button>
+      <button id="btn-trash" class="icon-pill" title="回收站">🗑</button>
+      <button id="btn-open-project" class="icon-pill" title="启动项目">▶</button>
+      <button id="btn-history" class="icon-pill" title="历史会话">🕘</button>
+      <button id="btn-add-project" class="icon-pill" title="添加项目">⊞</button>
+      <button id="btn-accounts" class="icon-pill" title="账号管理">👥</button>
+    </header>
+
+    <section class="projects-panel">
+      <div class="panel-header">
+        <h1 id="projects-title">已创建项目</h1>
+        <span id="project-count" class="count-chip">0</span>
+      </div>
+      <div id="project-grid" class="project-grid"></div>
+      <div id="empty-state" class="empty-state hidden">
+        还没有项目，点击上方“添加项目”开始创建。
+      </div>
+    </section>
+  </div>
+
+  <dialog id="dialog-add-project" class="modal">
+    <form id="form-add-project" method="dialog" class="modal-body">
+      <h2 id="add-project-title">添加项目</h2>
+      <label id="add-project-label-name">项目名</label>
+      <input id="project-name" required maxlength="80" placeholder="例如：client-workspace">
+
+      <label id="add-project-label-path">项目路径（必须已存在）</label>
+      <div class="path-picker-row">
+        <input id="project-path" required placeholder="/home/you/workspace/client-workspace">
+        <button type="button" id="project-path-pick" class="secondary">选择目录</button>
+      </div>
+
+      <label id="add-project-label-account">绑定账号</label>
+      <select id="project-account" required></select>
+
+      <div class="modal-actions">
+        <button type="button" id="add-project-cancel" class="ghost">取消</button>
+        <button type="submit" id="add-project-submit" class="primary">保存项目</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dialog-edit-project" class="modal">
+    <form id="form-edit-project" method="dialog" class="modal-body">
+      <h2 id="edit-project-title">编辑项目</h2>
+      <input id="edit-project-id" type="hidden">
+
+      <label id="edit-project-label-name">项目名</label>
+      <input id="edit-project-name" required maxlength="80">
+
+      <label id="edit-project-label-path">项目路径（必须已存在）</label>
+      <div class="path-picker-row">
+        <input id="edit-project-path" required>
+        <button type="button" id="edit-project-path-pick" class="secondary">选择目录</button>
+      </div>
+
+      <label id="edit-project-label-account">绑定账号</label>
+      <select id="edit-project-account" required></select>
+
+      <div class="modal-actions">
+        <button type="button" id="edit-project-cancel" class="ghost">取消</button>
+        <button type="submit" id="edit-project-submit" class="primary">保存修改</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dialog-accounts" class="modal">
+    <div class="modal-body">
+      <h2 id="accounts-title">账号管理</h2>
+      <form id="form-add-account" class="inline-form">
+        <input id="account-alias" required maxlength="60" placeholder="账号别名，例如：work">
+        <button type="submit" class="primary">添加账号</button>
+      </form>
+      <p id="accounts-hint" class="hint">添加后会打开 Codex 登录终端，完成 OAuth 登录后账号才会保存。</p>
+      <div id="account-list" class="list-box"></div>
+      <div class="modal-actions">
+        <button type="button" id="accounts-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dialog-open-project" class="modal">
+    <div class="modal-body">
+      <h2 id="open-project-title">启动项目</h2>
+      <div id="open-project-list" class="list-box"></div>
+      <div class="modal-actions">
+        <button type="button" id="open-project-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dialog-sessions" class="modal">
+    <div class="modal-body">
+      <h2 id="sessions-title">历史会话</h2>
+      <label id="sessions-label-project">选择项目</label>
+      <select id="session-project-select"></select>
+      <div class="session-filters">
+        <input id="session-search" placeholder="搜索会话名或 session_id">
+        <input id="session-date-from" type="date">
+        <input id="session-date-to" type="date">
+        <button type="button" id="session-filter-apply" class="secondary">筛选</button>
+        <button type="button" id="session-filter-reset" class="ghost">重置</button>
+      </div>
+      <div id="session-list" class="list-box"></div>
+      <div class="modal-actions">
+        <button type="button" id="sessions-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dialog-session-preview" class="modal">
+    <div class="modal-body">
+      <h2 id="session-preview-title">会话预览</h2>
+      <p id="session-preview-meta" class="hint"></p>
+      <div id="session-preview-list" class="list-box"></div>
+      <div class="modal-actions">
+        <button type="button" id="session-preview-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dialog-trash-sessions" class="modal">
+    <div class="modal-body">
+      <h2 id="trash-title">回收站会话</h2>
+      <label id="trash-label-project">选择项目</label>
+      <select id="trash-project-select"></select>
+      <div class="trash-filters">
+        <input id="trash-search" placeholder="搜索会话名或 session_id">
+        <button type="button" id="trash-filter-apply" class="secondary">筛选</button>
+        <button type="button" id="trash-filter-reset" class="ghost">重置</button>
+      </div>
+      <div id="trash-session-list" class="list-box"></div>
+      <div class="modal-actions">
+        <button type="button" id="trash-open-dir" class="secondary">打开目录</button>
+        <button type="button" id="trash-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="dialog-settings" class="modal">
+    <div class="modal-body settings-modal-body">
+      <h2 id="settings-title">设置</h2>
+      <div id="settings-tabs" class="settings-tabs">
+        <button type="button" id="settings-tab-general" class="settings-tab active" data-settings-tab="general">通用</button>
+        <button type="button" id="settings-tab-advanced" class="settings-tab" data-settings-tab="advanced">高级</button>
+        <button type="button" id="settings-tab-about" class="settings-tab" data-settings-tab="about">关于</button>
+      </div>
+
+      <section id="settings-panel-general" class="settings-panel">
+        <div class="settings-form-grid">
+          <label for="setting-language" id="label-setting-language">界面语言</label>
+          <select id="setting-language">
+            <option id="setting-language-zh" value="zh-CN">中文</option>
+            <option id="setting-language-en" value="en-US">English</option>
+          </select>
+
+          <label for="setting-theme" id="label-setting-theme">外观主题</label>
+          <select id="setting-theme">
+            <option id="setting-theme-light" value="light">浅色</option>
+            <option id="setting-theme-dark" value="dark">深色</option>
+          </select>
+
+          <label for="setting-window-close" id="label-setting-window-close">窗口行为</label>
+          <select id="setting-window-close">
+            <option id="setting-window-close-exit" value="exit">关闭时直接退出</option>
+            <option id="setting-window-close-minimize" value="minimize_to_tray">关闭时最小化到托盘</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="settings-save-general" class="primary">保存设置</button>
+        </div>
+      </section>
+
+      <section id="settings-panel-advanced" class="settings-panel hidden">
+        <label for="setting-config-dir" id="label-setting-config-dir">配置目录</label>
+        <div class="path-picker-row">
+          <input id="setting-config-dir" readonly>
+          <button type="button" id="setting-config-open" class="secondary">打开目录</button>
+        </div>
+      </section>
+
+      <section id="settings-panel-about" class="settings-panel hidden">
+        <div id="about-info-list" class="list-box"></div>
+        <div id="system-status-list" class="list-box"></div>
+      </section>
+
+      <div class="modal-actions">
+        <button type="button" id="settings-recheck" class="secondary">重新检测</button>
+        <button type="button" id="settings-close" class="ghost">关闭</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="{{ url_for('static', filename='app.js', v=asset_version) }}"></script>
+</body>
+</html>
