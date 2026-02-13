@@ -554,7 +554,24 @@ def _build_install_command_for_component(component_key: str) -> str:
 
     if manager == "npm":
         npm_bin = _require_binary("npm")
-        return f"{shlex.quote(npm_bin)} install -g {shlex.quote(package + '@latest')}"
+        npm_bin_quoted = shlex.quote(npm_bin)
+        package_quoted = shlex.quote(package + "@latest")
+        return (
+            f"pkg={package_quoted}; "
+            f"npm_bin={npm_bin_quoted}; "
+            "prefix=\"$($npm_bin config get prefix 2>/dev/null || true)\"; "
+            "prefix=\"${prefix%%$'\\r'}\"; "
+            "prefix=\"${prefix%%$'\\n'}\"; "
+            "if [ -n \"$prefix\" ] && [ \"$prefix\" != \"undefined\" ] && [ \"$prefix\" != \"null\" ] && [ -w \"$prefix\" ]; then "
+            "$npm_bin install -g \"$pkg\"; "
+            "elif command -v sudo >/dev/null 2>&1; then "
+            "sudo $npm_bin install -g \"$pkg\"; "
+            "else "
+            "echo 'npm 全局目录不可写，且系统未安装 sudo，无法自动安装。' >&2; "
+            "echo '建议先配置 npm 用户级 prefix（例如 ~/.npm-global）后重试。' >&2; "
+            "exit 1; "
+            "fi"
+        )
 
     if manager == "apt":
         apt_get_bin = _require_binary("apt-get")

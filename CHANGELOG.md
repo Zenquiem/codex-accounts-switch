@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.5] - 2026-02-13
+
+### Fixed
+- Improved Codex CLI upgrade command on npm environments with restricted global write permissions:
+  installer now auto-falls back to `sudo npm install -g @openai/codex@latest` when npm prefix is not writable.
+
 ## [1.0.4] - 2026-02-13
 
 ### Fixed
