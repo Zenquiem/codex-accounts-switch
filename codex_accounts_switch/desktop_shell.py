@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import socket
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from threading import Thread
 
@@ -43,6 +47,46 @@ def _pick_free_port(host: str = "127.0.0.1") -> int:
         return int(sock.getsockname()[1])
 
 
+def _ensure_local_no_proxy() -> None:
+    # Desktop runtimes may inherit HTTP(S)_PROXY without proper NO_PROXY.
+    # Ensure localhost traffic reaches the embedded Flask server directly.
+    required_tokens = ["127.0.0.1", "localhost", "::1", "127.0.0.0/8"]
+    for key in ("NO_PROXY", "no_proxy"):
+        raw = os.environ.get(key, "")
+        tokens = [part.strip() for part in raw.split(",") if part.strip()]
+        changed = False
+        for token in required_tokens:
+            if token not in tokens:
+                tokens.append(token)
+                changed = True
+        if changed or not raw:
+            os.environ[key] = ",".join(tokens)
+
+
+def _wait_server_ready(app_url: str, timeout_sec: float = 8.0) -> bool:
+    deadline = time.monotonic() + timeout_sec
+    health_url = f"{app_url}/api/health"
+    while time.monotonic() < deadline:
+        try:
+            request = urllib.request.Request(health_url, headers={"User-Agent": "cas-desktop"})
+            with urllib.request.urlopen(request, timeout=0.9) as response:
+                if response.status == 200:
+                    return True
+        except (urllib.error.URLError, TimeoutError, OSError):
+            time.sleep(0.15)
+    return False
+
+
+def _apply_webkit_vm_compat() -> None:
+    # Some VM/WebKitGTK combinations render a blank page unless these are forced.
+    # Set CAS_WEBKIT_VM_COMPAT=0 to disable this behavior.
+    compat = str(os.environ.get("CAS_WEBKIT_VM_COMPAT", "1")).strip().lower()
+    if compat in {"0", "false", "no", "off"}:
+        return
+    os.environ["WEBKIT_DISABLE_DMABUF_RENDERER"] = "1"
+    os.environ["WEBKIT_DISABLE_COMPOSITING_MODE"] = "1"
+
+
 def launch_desktop_shell(
     *,
     data_root: str | None = None,
@@ -52,6 +96,9 @@ def launch_desktop_shell(
     width: int = 1320,
     height: int = 860,
 ) -> None:
+    _ensure_local_no_proxy()
+    _apply_webkit_vm_compat()
+
     try:
         import webview
     except ImportError as exc:
@@ -69,6 +116,9 @@ def launch_desktop_shell(
 
     app_url = f"http://{host}:{bind_port}"
     try:
+        if not _wait_server_ready(app_url, timeout_sec=8.0):
+            raise DesktopShellError("本地 Web 服务启动超时，桌面壳无法加载页面。")
+
         main_window = webview.create_window(
             title=title,
             url=app_url,

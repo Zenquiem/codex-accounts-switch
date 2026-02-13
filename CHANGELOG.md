@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.3] - 2026-02-13
+
+### Fixed
+- Fixed desktop shell blank-window issue on some VM/WebKitGTK environments by forcing WebKit compatibility flags at runtime.
+- Added `CAS_WEBKIT_VM_COMPAT=0` switch for users who need to disable the forced VM compatibility mode.
+
 ## [1.0.2] - 2026-02-13
 
 ### Added
