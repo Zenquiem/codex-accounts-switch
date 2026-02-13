@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.4] - 2026-02-13
+
+### Fixed
+- Installer now auto-adds `~/.local/bin` to `PATH` in `~/.bashrc`, `~/.zshrc`, and `~/.profile` when missing, so `cas` works out of the box after installation.
+
 ## [1.0.3] - 2026-02-13
 
 ### Fixed

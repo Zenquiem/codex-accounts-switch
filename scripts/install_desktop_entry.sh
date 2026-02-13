@@ -17,8 +17,30 @@ DEFAULT_HTTP_PROXY="${HTTP_PROXY:-${http_proxy:-}}"
 DEFAULT_HTTPS_PROXY="${HTTPS_PROXY:-${https_proxy:-}}"
 DEFAULT_ALL_PROXY="${ALL_PROXY:-${all_proxy:-}}"
 DEFAULT_NO_PROXY="${NO_PROXY:-${no_proxy:-}}"
+PATH_EXPORT_LINE='export PATH="$HOME/.local/bin:$PATH"'
 
 mkdir -p "$WRAPPER_DIR" "$DESKTOP_DIR" "$ICON_DIR"
+
+ensure_local_bin_in_path_file() {
+  local file="$1"
+  [[ -f "$file" ]] || touch "$file"
+  if grep -Eq '^[[:space:]]*(export[[:space:]]+)?PATH=.*(\$HOME|\$\{HOME\}|~)/\.local/bin' "$file"; then
+    return 1
+  fi
+  {
+    printf "\n"
+    printf "# Added by codex-accounts-switch installer\n"
+    printf "%s\n" "$PATH_EXPORT_LINE"
+  } >>"$file"
+  return 0
+}
+
+PATH_UPDATED_FILES=()
+for shell_rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+  if ensure_local_bin_in_path_file "$shell_rc"; then
+    PATH_UPDATED_FILES+=("$shell_rc")
+  fi
+done
 
 cat >"$WRAPPER_PATH" <<EOF
 #!/usr/bin/env bash
@@ -124,3 +146,10 @@ fi
 echo "Installed desktop entry: $DESKTOP_PATH"
 echo "Launch command wrapper: $WRAPPER_PATH"
 echo "CLI alias command: $ALIAS_PATH"
+if [[ ${#PATH_UPDATED_FILES[@]} -gt 0 ]]; then
+  echo "Updated PATH config files:"
+  for file in "${PATH_UPDATED_FILES[@]}"; do
+    echo "  - $file"
+  done
+  echo "Run 'source ~/.bashrc' or 'source ~/.zshrc' to use 'cas' in current terminal."
+fi
