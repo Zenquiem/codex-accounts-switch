@@ -48,15 +48,15 @@ codex --version
 
 - GTK 方案（推荐 Ubuntu 原生）
   - `sudo apt install python3-gi python3-gi-cairo gir1.2-webkit2-4.1`
-  - 建议虚拟环境使用系统包：`python3 -m venv .venv --system-site-packages`
 - Qt 方案（纯 pip）
   - `pip install qtpy PyQt6`
 
-## 快速开始
+## 快速开始（请先保证至少安装了npm/node和GTK）
 
 ```bash
 cd /path/to/codexaccountsswitch
 python3 -m venv .venv
+python3 -m venv .venv --system-site-packages
 source .venv/bin/activate
 pip install -r requirements.txt
 ./codex-accounts-switch
@@ -64,7 +64,7 @@ pip install -r requirements.txt
 
 默认是桌面模式（`--mode desktop`）。
 
-若你执行过桌面入口安装脚本，也可以直接输入：
+若你执行过桌面应用入口安装脚本，也可以直接输入：
 
 ```bash
 cas
@@ -127,6 +127,7 @@ codex-accounts-switch
 
 ## 常见问题
 
+- 添加账号跳转网页失败：先确认网络/代理环境，再重试刷新。
 - 额度查询失败：先确认网络/代理环境，再重试刷新。
 - 桌面图标没更新：重新执行安装脚本，必要时注销重登。
 - `permission denied`：
