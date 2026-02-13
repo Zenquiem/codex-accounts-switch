@@ -2,7 +2,7 @@
 
 `codex-accounts-switch` 是一个面向 Ubuntu 的本地桌面工具（Web UI 壳），用于管理多个 Codex OAuth 账号，并按项目快速启动或恢复会话。
 
-版本：`1.0.1`
+版本：`1.0.2`
 
 ## 核心能力
 
@@ -21,11 +21,28 @@
 
 - Ubuntu 桌面环境
 - Python 3.10+
+- `npm` / `node`
 - `codex` CLI
 - `gnome-terminal`
 - `bash`（必备）
 - `zsh`（可选，优先使用）
 - `zenity`（可选，目录选择器）
+
+若未安装 `npm` / `node`，先执行：
+
+```bash
+sudo apt update
+sudo apt install -y nodejs npm
+node -v
+npm -v
+```
+
+然后安装 Codex CLI：
+
+```bash
+sudo npm install -g @openai/codex
+codex --version
+```
 
 桌面壳后端依赖（满足其一）：
 
@@ -47,6 +64,12 @@ pip install -r requirements.txt
 
 默认是桌面模式（`--mode desktop`）。
 
+若你执行过桌面入口安装脚本，也可以直接输入：
+
+```bash
+cas
+```
+
 如需 Web 调试模式：
 
 ```bash
@@ -63,6 +86,7 @@ python3 run.py --mode web --port 18420
 
 - `~/.local/share/applications/codex-accounts-switch.desktop`
 - `~/.local/bin/codex-accounts-switch-desktop`
+- `~/.local/bin/cas`
 
 卸载：
 

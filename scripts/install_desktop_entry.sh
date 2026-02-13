@@ -8,6 +8,7 @@ APP_ID="codex-accounts-switch"
 APP_NAME="Codex Accounts Switch"
 WRAPPER_DIR="$HOME/.local/bin"
 WRAPPER_PATH="$WRAPPER_DIR/${APP_ID}-desktop"
+ALIAS_PATH="$WRAPPER_DIR/cas"
 DESKTOP_DIR="$HOME/.local/share/applications"
 DESKTOP_PATH="$DESKTOP_DIR/${APP_ID}.desktop"
 ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
@@ -90,6 +91,13 @@ exec "\$LAUNCH_BIN" "\$@"
 EOF
 chmod +x "$WRAPPER_PATH"
 
+cat >"$ALIAS_PATH" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+exec "$WRAPPER_PATH" "\$@"
+EOF
+chmod +x "$ALIAS_PATH"
+
 cp "$PROJECT_ROOT/assets/icons/${APP_ID}.svg" "$ICON_PATH"
 
 cat >"$DESKTOP_PATH" <<EOF
@@ -115,3 +123,4 @@ fi
 
 echo "Installed desktop entry: $DESKTOP_PATH"
 echo "Launch command wrapper: $WRAPPER_PATH"
+echo "CLI alias command: $ALIAS_PATH"

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.2] - 2026-02-13
+
+### Added
+- Added a short launcher alias command `cas` (installed to `~/.local/bin/cas` by desktop installer script).
+- Added README instructions for installing `npm`/`node` on Ubuntu and then installing Codex CLI.
+
+### Changed
+- Self-update repo resolution now falls back to built-in default repo when `CAS_UPDATE_REPO` and git remote are unavailable.
+- Self "install latest" now opens GitHub latest release page in non-git package mode.
+
 ## [1.0.1] - 2026-02-12
 
 ### Added

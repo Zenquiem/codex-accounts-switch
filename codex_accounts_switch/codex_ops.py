@@ -57,6 +57,7 @@ _COMPONENT_SPECS: dict[str, dict[str, str]] = {
 _VERSION_TOKEN_RE = re.compile(r"\d[0-9A-Za-z.+:~\-]*")
 _APT_POLICY_TABLE_RE = re.compile(r"^\*{0,3}\s*([0-9][^\s]*)\s+\d+")
 _REPO_SLUG_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_DEFAULT_UPDATE_REPO = "Zenquiem/codex-accounts-switch"
 
 
 def _is_executable_file(path: Path) -> bool:
@@ -341,23 +342,37 @@ def _resolve_update_repo_slug() -> str | None:
         return env_repo
 
     git_bin = _resolve_binary("git")
-    if not git_bin:
-        return None
+    if git_bin:
+        project_root = Path(__file__).resolve().parent.parent
+        try:
+            completed = subprocess.run(
+                [git_bin, "-C", str(project_root), "config", "--get", "remote.origin.url"],
+                capture_output=True,
+                text=True,
+                timeout=6,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            completed = None
+        if completed and completed.returncode == 0:
+            parsed = _parse_github_repo_slug(completed.stdout or "")
+            if parsed:
+                return parsed
 
-    project_root = Path(__file__).resolve().parent.parent
-    try:
-        completed = subprocess.run(
-            [git_bin, "-C", str(project_root), "config", "--get", "remote.origin.url"],
-            capture_output=True,
-            text=True,
-            timeout=6,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if completed.returncode != 0:
-        return None
-    return _parse_github_repo_slug(completed.stdout or "")
+    return _DEFAULT_UPDATE_REPO if _REPO_SLUG_RE.match(_DEFAULT_UPDATE_REPO) else None
+
+
+def _open_url_with_desktop(url: str) -> None:
+    target = _clean_line_value(url)
+    if not target:
+        raise CodexOpsError("无效的链接地址。")
+    if shutil.which("xdg-open"):
+        subprocess.Popen(["xdg-open", target], start_new_session=True)
+        return
+    if shutil.which("gio"):
+        subprocess.Popen(["gio", "open", target], start_new_session=True)
+        return
+    raise CodexOpsError("系统中未找到可用的链接打开器（`xdg-open`/`gio`）。")
 
 
 def _fetch_json(url: str, timeout: int = 10) -> Any:
@@ -411,10 +426,7 @@ def _compare_versions(left: str | None, right: str | None) -> int:
 def check_self_latest_version(current_version: str) -> dict[str, Any]:
     repo_slug = _resolve_update_repo_slug()
     if not repo_slug:
-        raise CodexOpsError(
-            "未配置版本检测仓库。请设置环境变量 `CAS_UPDATE_REPO=owner/repo` "
-            "或在 git remote origin 中使用 GitHub 仓库地址。"
-        )
+        raise CodexOpsError("未配置版本检测仓库。")
 
     api_base = f"https://api.github.com/repos/{repo_slug}"
     latest_tag = None
@@ -466,10 +478,20 @@ def check_self_latest_version(current_version: str) -> dict[str, Any]:
     }
 
 
-def launch_self_latest_install() -> dict[str, Any]:
+def launch_self_latest_install(current_version: str | None = None) -> dict[str, Any]:
     project_root = Path(__file__).resolve().parent.parent
+    repo_slug = _resolve_update_repo_slug()
+    if not repo_slug:
+        raise CodexOpsError("未配置版本检测仓库，无法打开最新版下载页。")
+    release_url = f"https://github.com/{repo_slug}/releases/latest"
+
     if not (project_root / ".git").exists():
-        raise CodexOpsError("当前目录不是 Git 仓库，无法一键安装最新版。")
+        _open_url_with_desktop(release_url)
+        return {
+            "mode": "release_page",
+            "release_url": release_url,
+            "message": "当前为发布包模式，已打开最新版下载页面。",
+        }
 
     terminal_bin = _require_binary("gnome-terminal")
     git_bin = _require_binary("git")
@@ -517,8 +539,10 @@ def launch_self_latest_install() -> dict[str, Any]:
     )
 
     return {
+        "mode": "git_pull",
         "command": install_command,
         "message": "已打开工具更新终端。",
+        "release_url": release_url,
     }
 
 
