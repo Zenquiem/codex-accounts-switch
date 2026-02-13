@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Python Syntax Check
+        run: python -m compileall run.py codex_accounts_switch
+
+      - name: Shell Script Syntax Check
+        run: bash -n scripts/install_desktop_entry.sh scripts/uninstall_desktop_entry.sh scripts/build_appimage.sh
+
+      - name: Frontend JS Syntax Check
+        run: node --check codex_accounts_switch/static/app.js

@@ -1,0 +1,77 @@
+name: Bug Report
+description: Report a reproducible bug
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is the bug?
+      placeholder: Short and clear description.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps to reproduce the issue.
+      placeholder: |
+        1. Run ...
+        2. Click ...
+        3. See error ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Screenshots
+      description: Paste terminal logs or attach screenshots.
+      placeholder: Include stack traces or error messages if available.
+
+  - type: input
+    id: app_version
+    attributes:
+      label: App Version
+      placeholder: e.g. 1.0.5
+    validations:
+      required: true
+
+  - type: input
+    id: os_version
+    attributes:
+      label: OS Version
+      placeholder: e.g. Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment Details
+      description: Python / node / codex versions, desktop or web mode, VM or bare metal.
+      placeholder: |
+        - Python:
+        - node/npm:
+        - codex:
+        - launch mode: desktop/web
+        - machine: VM/bare metal
