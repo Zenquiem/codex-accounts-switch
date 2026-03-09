@@ -1,4 +1,6 @@
 # codex-accounts-switch
+codex-accounts-switch is an Ubuntu desktop tool for managing multiple Codex OAuth accounts.
+It helps users switch between accounts, isolate project sessions, restore previous workspaces, and simplify multi-account workflow management for Codex.
 
 `codex-accounts-switch` 是一个面向 Ubuntu 的本地桌面工具（Web UI 壳），用于管理多个 Codex OAuth 账号，并按项目快速启动或恢复会话。
 
